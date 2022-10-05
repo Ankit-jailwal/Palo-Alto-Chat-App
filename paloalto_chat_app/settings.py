@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     'paloalto_chat_app'
 ]
 
+AUTH_USER_MODEL = "user_auth.CustomUser"
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
