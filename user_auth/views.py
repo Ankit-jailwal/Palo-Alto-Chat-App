@@ -1,16 +1,19 @@
 import jwt
-from .models import Jwt
-from user_auth.models import CustomUser
+from .models import Jwt, CustomUser
 from datetime import datetime, timedelta
 from django.conf import settings
 import random
 import string
 from rest_framework.views import APIView
-from .serializers import LoginSerializer, RegisterSerializer, RefreshSerializer
+from .serializers import (
+    LoginSerializer, RegisterSerializer, RefreshSerializer, UserProfileSerializer, UserProfile
+)
 from django.contrib.auth import authenticate
 from rest_framework.response import Response
 from .authentication import Authentication
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.viewsets import ModelViewSet
+from paloalto_chat_app.custom_methods import IsAuthenticatedCustom
+from django.db.models import Q, Count, Subquery, OuterRef
 
 
 def get_random(length):
@@ -32,6 +35,17 @@ def get_refresh_token():
         algorithm="HS256"
     )
 
+def decodeJWT(bearer):
+    if not bearer:
+        return None
+
+    token = bearer[7:]
+    decoded = jwt.decode(token, key=settings.SECRET_KEY)
+    if decoded:
+        try:
+            return CustomUser.objects.get(id=decoded["user_id"])
+        except Exception:
+            return None
 
 class LoginView(APIView):
     serializer_class = LoginSerializer
@@ -95,10 +109,45 @@ class RefreshView(APIView):
 
         return Response({"access": access, "refresh": refresh})
 
+class UserProfileView(ModelViewSet):
+    queryset = UserProfile.objects.all()
+    serializer_class = UserProfileSerializer
+    permission_classes = (IsAuthenticatedCustom, )
 
-class GetSecuredInfo(APIView):
-    permission_classes = [IsAuthenticated]
+    def get_queryset(self):
+        if self.request.method.lower() != "get":
+            return self.queryset
 
-    def get(self, request):
-        print(request.user)
-        return Response({"data": "This is a secured info"})
+        data = self.request.query_params.dict()
+        data.pop("page", None)
+        keyword = data.pop("keyword", None)
+
+        if keyword:
+            search_fields = (
+                "user__username", "first_name", "last_name", "user__email"
+            )
+            query = self.get_query(keyword, search_fields)
+            try:
+                return self.queryset.filter(query).filter(**data).exclude(
+                    Q(user_id=self.request.user.id) |
+                    Q(user__is_superuser=True)
+                ).annotate(
+                    fav_count=Count(self.user_fav_query(self.request.user))
+                ).order_by("-fav_count")
+            except Exception as e:
+                raise Exception(e)
+
+        result = self.queryset.filter(**data).exclude(
+            Q(user_id=self.request.user.id) |
+            Q(user__is_superuser=True)
+        ).annotate(
+            fav_count=Count(self.user_fav_query(self.request.user))
+        ).order_by("-fav_count")
+        return result
+
+    @staticmethod
+    def user_fav_query(user):
+        try:
+            return user.user_favorites.favorite.filter(id=OuterRef("user_id")).values("pk")
+        except Exception:
+            return []
