@@ -1,18 +1,19 @@
 import jwt
-from .models import Jwt, CustomUser
+from .models import Jwt, CustomUser, Favorite
 from datetime import datetime, timedelta
 from django.conf import settings
 import random
 import string
 from rest_framework.views import APIView
 from .serializers import (
-    LoginSerializer, RegisterSerializer, RefreshSerializer, UserProfileSerializer, UserProfile
+    LoginSerializer, RegisterSerializer, RefreshSerializer, UserProfileSerializer, UserProfile, FavoriteSerializer
 )
 from django.contrib.auth import authenticate
 from rest_framework.response import Response
 from .authentication import Authentication
-from rest_framework.viewsets import ModelViewSet
 from paloalto_chat_app.custom_methods import IsAuthenticatedCustom
+from rest_framework.viewsets import ModelViewSet
+import re
 from django.db.models import Q, Count, Subquery, OuterRef
 
 
@@ -35,17 +36,19 @@ def get_refresh_token():
         algorithm="HS256"
     )
 
+
 def decodeJWT(bearer):
     if not bearer:
         return None
 
     token = bearer[7:]
-    decoded = jwt.decode(token, key=settings.SECRET_KEY)
+    decoded = jwt.decode(token, key=settings.SECRET_KEY, algorithms=['HS256'])
     if decoded:
         try:
             return CustomUser.objects.get(id=decoded["user_id"])
         except Exception:
             return None
+
 
 class LoginView(APIView):
     serializer_class = LoginSerializer
@@ -80,9 +83,11 @@ class RegisterView(APIView):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        CustomUser.objects._create_user(**serializer.validated_data)
+        username = serializer.validated_data.pop("username")
 
-        return Response({"success": "User created."}, status = 201)
+        CustomUser.objects.create_user(username=username, **serializer.validated_data)
+
+        return Response({"success": "User created."}, status=201)
 
 
 class RefreshView(APIView):
@@ -108,6 +113,7 @@ class RefreshView(APIView):
         active_jwt.save()
 
         return Response({"access": access, "refresh": refresh})
+
 
 class UserProfileView(ModelViewSet):
     queryset = UserProfile.objects.all()
@@ -151,3 +157,95 @@ class UserProfileView(ModelViewSet):
             return user.user_favorites.favorite.filter(id=OuterRef("user_id")).values("pk")
         except Exception:
             return []
+
+
+    @staticmethod
+    def get_query(query_string, search_fields):
+        query = None  # Query to search for every search term
+        terms = UserProfileView.normalize_query(query_string)
+        for term in terms:
+            or_query = None  # Query to search for a given term in each field
+            for field_name in search_fields:
+                q = Q(**{"%s__icontains" % field_name: term})
+                if or_query is None:
+                    or_query = q
+                else:
+                    or_query = or_query | q
+            if query is None:
+                query = or_query
+            else:
+                query = query & or_query
+        return query
+
+    @staticmethod
+    def normalize_query(query_string, findterms=re.compile(r'"([^"]+)"|(\S+)').findall, normspace=re.compile(r'\s{2,}').sub):
+        return [normspace(' ', (t[0] or t[1]).strip()) for t in findterms(query_string)]
+
+
+class MeView(APIView):
+    permission_classes = (IsAuthenticatedCustom, )
+    serializer_class = UserProfileSerializer
+
+    def get(self, request):
+        data = {}
+        try:
+            data = self.serializer_class(request.user.user_profile).data
+        except Exception:
+            data = {
+                "user": {
+                    "id": request.user.id
+                }
+            }
+        return Response(data, status=200)
+
+
+class LogoutView(APIView):
+    permission_classes = (IsAuthenticatedCustom, )
+
+    def get(self, request):
+        user_id = request.user.id
+
+        Jwt.objects.filter(user_id=user_id).delete()
+
+        return Response("logged out successfully", status=200)
+
+
+class UpdateFavoriteView(APIView):
+    permission_classes = (IsAuthenticatedCustom,)
+    serializer_class = FavoriteSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            favorite_user = CustomUser.objects.get(id=serializer.validated_data["favorite_id"])
+        except Exception:
+            raise Exception("Favorite user does not exist")
+
+        try:
+            fav = request.user.user_favorites
+        except Exception:
+            fav = Favorite.objects.create(user_id=request.user.id)
+
+        favorite = fav.favorite.filter(id=favorite_user.id)
+        if favorite:
+            fav.favorite.remove(favorite_user)
+            return Response("removed")
+
+        fav.favorite.add(favorite_user)
+        return Response("added")
+
+
+class CheckIsFavoriteView(APIView):
+    permission_classes = (IsAuthenticatedCustom,)
+
+    def get(self, request, *args, **kwargs):
+        favorite_id = kwargs.get("favorite_id", None)
+        try:
+            favorite = request.user.user_favorites.favorite.filter(id=favorite_id)
+            if favorite:
+                return Response(True)
+            return Response(False)
+        except Exception:
+            return Response(False)
+
