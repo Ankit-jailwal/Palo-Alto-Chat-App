@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-fzhix0xcq0qph*8aosa_g*rmgz9pxi@erf3&^(k_za_b!p8-(7
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -37,6 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'user_auth',
+    'paloalto_chat_app'
 ]
 
 MIDDLEWARE = [
