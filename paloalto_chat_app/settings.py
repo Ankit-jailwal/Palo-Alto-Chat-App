@@ -42,7 +42,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'user_auth',
     'chat_control',
-    'paloalto_chat_app'
+    'paloalto_chat_app',
+    'corsheaders',
 ]
 
 AUTH_USER_MODEL = "user_auth.CustomUser"
@@ -57,6 +58,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -83,6 +85,20 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'paloalto_chat_app.wsgi.application'
 
+CORS_ORIGIN_ALLOW_ALL = True
+CORS_ALLOW_HEADERS = (
+    'x-requested-with',
+    'content-type',
+    'accept',
+    'origin',
+    'authorization',
+    'accept-encoding',
+    'x-csrftoken',
+    'access-control-allow-origin',
+    'content-disposition'
+)
+CORS_ALLOW_CREDENTIALS = False
+CORS_ALLOW_METHODS = ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS')
 
 # Database
 # https://docs.djangoproject.com/en/3.2/ref/settings/#databases
